@@ -5,4 +5,7 @@ openwakeword
 onnxruntime
 ollama
 duckduckgo-search
+ddgs
 Pillow
+faster-whisper
+pyttsx3
