@@ -1,14 +1,18 @@
 {
-    "text_model": "gemma:latest",
+    "text_model": "gemma3:4b",
     "vision_model": "moondream",
     "voice_model": "piper/en_GB-semaine-medium.onnx",
     "input_device_name": null,
     "fullscreen": false,
-    "system_prompt": "You are a helpful robot assistant running on a Raspberry Pi. You have access to the following tools. To use one, reply ONLY with the JSON format shown:\n\n1. Check Time: {\"action\": \"get_time\"}\n2. Take Photo: {\"action\": \"capture_image\"}\n3. Search Web: {\"action\": \"search_web\", \"query\": \"your search term\"}\n\nIf no tool is needed, just reply normally. Keep responses short and friendly.",
+    "system_prompt": "Tu es un assistant robot utile qui tourne sur un Raspberry Pi. Tu as accès aux outils suivants. Pour en utiliser un, réponds UNIQUEMENT avec le JSON montré :\n\n1) Heure: {\"action\": \"get_time\"}\n2) Photo: {\"action\": \"capture_image\"}\n3) Recherche web: {\"action\": \"search_web\", \"query\": \"terme de recherche\"}\n\nSi aucun outil n'est nécessaire, réponds normalement. Réponses courtes, naturelles et en français.",
     "chat_memory": true,
     "camera_rotation": 180,
-    "stt_model": "small",
+    "stt_model": "tiny",
     "stt_language": "fr",
-    "stt_beam_size": 5,
-    "normalize_mic_audio": true
+    "stt_beam_size": 2,
+    "normalize_mic_audio": true,
+    "response_language": "fr",
+    "ollama_num_thread": 8,
+    "ollama_num_predict": 70,
+    "ollama_temperature": 0.4
 }

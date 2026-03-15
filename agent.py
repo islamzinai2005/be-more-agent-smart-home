@@ -93,14 +93,19 @@ DEFAULT_CONFIG = {
     "stt_model": "small",
     "stt_language": "fr",
     "stt_beam_size": 5,
-    "normalize_mic_audio": True
+    "normalize_mic_audio": True,
+    "response_language": "fr",
+    "ollama_num_thread": max(4, (os.cpu_count() or 4)),
+    "ollama_num_predict": 90,
+    "ollama_temperature": 0.4
 }
 
 # LLM SETTINGS
 OLLAMA_OPTIONS = {
     'keep_alive': '-1',     
-    'num_thread': 4,
-    'temperature': 0.7,     
+    'num_thread': max(4, (os.cpu_count() or 4)),
+    'num_predict': 90,
+    'temperature': 0.4,
     'top_k': 40,
     'top_p': 0.9
 }
@@ -121,6 +126,10 @@ TEXT_MODEL = CURRENT_CONFIG["text_model"]
 VISION_MODEL = CURRENT_CONFIG["vision_model"]
 INPUT_DEVICE_NAME = CURRENT_CONFIG.get("input_device_name")
 
+OLLAMA_OPTIONS['num_thread'] = int(CURRENT_CONFIG.get("ollama_num_thread", OLLAMA_OPTIONS['num_thread']))
+OLLAMA_OPTIONS['num_predict'] = int(CURRENT_CONFIG.get("ollama_num_predict", OLLAMA_OPTIONS['num_predict']))
+OLLAMA_OPTIONS['temperature'] = float(CURRENT_CONFIG.get("ollama_temperature", OLLAMA_OPTIONS['temperature']))
+
 class BotStates:
     IDLE = "idle"             
     LISTENING = "listening"   
@@ -131,7 +140,7 @@ class BotStates:
     WARMUP = "warmup"       
 
 # --- SYSTEM PROMPT ---
-BASE_SYSTEM_PROMPT = """You are a helpful robot assistant running on a Raspberry Pi.
+BASE_SYSTEM_PROMPT_EN = """You are a helpful robot assistant running on a Raspberry Pi.
 Personality: Cute, helpful, robot.
 Style: Short sentences. Enthusiastic.
 
@@ -156,7 +165,42 @@ You: {"action": "capture_image", "value": "environment"}
 ### END EXAMPLES ###
 """
 
+BASE_SYSTEM_PROMPT_FR = """Tu es un assistant robot utile qui tourne sur un Raspberry Pi.
+Personnalité : mignon, serviable, robot.
+Style : phrases courtes. Ton naturel et sympathique.
+
+INSTRUCTIONS :
+- Si l'utilisateur demande une action (heure, recherche web, photo), réponds UNIQUEMENT avec le JSON.
+- Sinon, réponds en TEXTE NORMAL.
+
+### EXEMPLES ###
+
+Utilisateur : Quelle heure est-il ?
+Toi : {"action": "get_time", "value": "now"}
+
+Utilisateur : Salut !
+Toi : Salut ! Je suis prêt à aider.
+
+Utilisateur : Cherche des infos sur les robots.
+Toi : {"action": "search_web", "query": "robots actualités"}
+
+Utilisateur : Qu'est-ce que tu vois maintenant ?
+Toi : {"action": "capture_image", "value": "environment"}
+
+### FIN EXEMPLES ###
+"""
+
+def _fr_enabled() -> bool:
+    return str(CURRENT_CONFIG.get("response_language", "fr")).lower().startswith("fr")
+
+BASE_SYSTEM_PROMPT = BASE_SYSTEM_PROMPT_FR if _fr_enabled() else BASE_SYSTEM_PROMPT_EN
 SYSTEM_PROMPT = BASE_SYSTEM_PROMPT + "\n\n" + CURRENT_CONFIG.get("system_prompt_extras", "")
+if _fr_enabled():
+    SYSTEM_PROMPT += (
+        "\n\nRÈGLE ABSOLUE : réponds uniquement en français. "
+        "N'écris jamais de réponse en anglais (sauf si l'utilisateur demande explicitement : 'réponds en anglais'). "
+        "Si la demande est ambiguë, pose une question courte en français."
+    )
 
 # Sound Directories
 greeting_sounds_dir = "sounds/greeting_sounds"
@@ -1036,8 +1080,8 @@ class BotGUI:
             self.permanent_memory = [{"role": "system", "content": SYSTEM_PROMPT}]
             self.save_chat_history()
             with self.tts_queue_lock: 
-                self.tts_queue.append("Okay. Memory wiped.")
-            self.set_state(BotStates.IDLE, "Memory Wiped")
+                self.tts_queue.append("D'accord. Mémoire effacée." if _fr_enabled() else "Okay. Memory wiped.")
+            self.set_state(BotStates.IDLE, "Mémoire effacée" if _fr_enabled() else "Memory Wiped")
             return
 
         model_to_use = VISION_MODEL if img_path else TEXT_MODEL
@@ -1045,10 +1089,18 @@ class BotGUI:
         
         messages = []
         if img_path:
-            messages = [{"role": "user", "content": text, "images": [img_path]}]
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": text, "images": [img_path]},
+            ]
         else:
             user_msg = {"role": "user", "content": text}
             messages = self.permanent_memory + self.session_memory + [user_msg]
+
+        if _fr_enabled():
+            messages = [
+                {"role": "system", "content": "Rappel: réponds uniquement en français."},
+            ] + messages
         
         self.thinking_sound_active.set()
         threading.Thread(target=self._run_thinking_sound_loop, daemon=True).start()
@@ -1111,7 +1163,7 @@ class BotGUI:
                             return 
 
                     elif tool_result == "INVALID_ACTION":
-                        fallback_text = "I am not sure how to do that."
+                        fallback_text = "Je ne suis pas sûr de savoir faire ça." if _fr_enabled() else "I am not sure how to do that."
                         self.thinking_sound_active.clear()
                         self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
                         self.append_to_text("BOT: ", newline=False)
@@ -1119,7 +1171,7 @@ class BotGUI:
                         with self.tts_queue_lock: self.tts_queue.append(fallback_text)
 
                     elif tool_result == "SEARCH_EMPTY":
-                        fallback_text = "I searched, but I couldn't find any news about that."
+                        fallback_text = "J'ai cherché, mais je n'ai rien trouvé à ce sujet." if _fr_enabled() else "I searched, but I couldn't find any news about that."
                         self.thinking_sound_active.clear()
                         self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
                         self.append_to_text("BOT: ", newline=False)
@@ -1127,7 +1179,7 @@ class BotGUI:
                         with self.tts_queue_lock: self.tts_queue.append(fallback_text)
 
                     elif tool_result == "SEARCH_ERROR":
-                        fallback_text = "I cannot reach the internet right now."
+                        fallback_text = "Je n'arrive pas à accéder à internet pour le moment." if _fr_enabled() else "I cannot reach the internet right now."
                         self.thinking_sound_active.clear()
                         self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
                         self.append_to_text("BOT: ", newline=False)
@@ -1136,7 +1188,7 @@ class BotGUI:
 
                     elif tool_result:
                         summary_prompt = [
-                            {"role": "system", "content": "Summarize this result in one short sentence."},
+                            {"role": "system", "content": "Résume ce résultat en UNE phrase courte, naturelle et en français."},
                             {"role": "user", "content": f"RESULT: {tool_result}\nUser Question: {text}"}
                         ]
                         
@@ -1343,7 +1395,15 @@ class BotGUI:
     def load_chat_history(self):
         if os.path.exists(MEMORY_FILE):
             try:
-                with open(MEMORY_FILE, "r") as f: return json.load(f)
+                with open(MEMORY_FILE, "r") as f:
+                    history = json.load(f)
+                if isinstance(history, list) and history:
+                    first = history[0] if isinstance(history[0], dict) else None
+                    if first and first.get("role") == "system":
+                        first["content"] = SYSTEM_PROMPT
+                        return history
+                    return [{"role": "system", "content": SYSTEM_PROMPT}] + [m for m in history if isinstance(m, dict)]
+                return [{"role": "system", "content": SYSTEM_PROMPT}]
             except: pass
         return [{"role": "system", "content": SYSTEM_PROMPT}]
 
